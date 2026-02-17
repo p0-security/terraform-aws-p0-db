@@ -40,14 +40,14 @@ locals {
   db_port = var.db_type == "instance" ? data.aws_db_instance.target[0].port : data.aws_rds_cluster.target[0].port
   connector_image = "p0security/p0-connector-${var.db_architecture}:latest"
   ecr_repository_url = var.create_ecr ? module.ecr[0].repository_url : data.aws_ecr_repository.p0_connector_images[0].repository_url
-  lambda_execution_role = var.create_connector ? aws_iam_role.lambda_execution[0] : data.aws_iam_role.lambda_execution[0]
+  lambda_execution_role = var.create_connector ? module.p0_aws_connector[0].lambda_execution_role : data.aws_iam_role.lambda_execution[0]
 }
 
-# Security group for VPC endpoint and Lambda (only when create_connector is true)
-resource "aws_security_group" "p0_db_endpoint" {
+# Security group for database access (only when create_connector is true)
+resource "aws_security_group" "db_access" {
   count       = var.create_connector ? 1 : 0
-  name        = "p0_db_endpoint_${var.vpc_id}"
-  description = "Security group for P0 database connector endpoint"
+  name        = "p0_db_access_${var.vpc_id}"
+  description = "Security group for P0 connector to access RDS database"
   vpc_id      = var.vpc_id
 
   # Allow outbound traffic to RDS instance/cluster
@@ -59,82 +59,41 @@ resource "aws_security_group" "p0_db_endpoint" {
     security_groups = local.db_security_groups
   }
 
-  # Allow all outbound HTTPS for ECR and other AWS services
-  egress {
-    description = "Allow outbound HTTPS"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  # Allow inbound from VPC CIDR (for VPC endpoint communication)
-  ingress {
-    description = "Allow inbound from VPC"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = [data.aws_vpc.target.cidr_block]
-  }
-
   tags = {
-    Name       = "p0_db_endpoint_${var.vpc_id}"
+    Name       = "p0_db_access_${var.vpc_id}"
     VpcId      = var.vpc_id
     ManagedBy  = "Terraform"
     ManagedFor = "P0"
   }
 }
 
-# VPC Endpoint for ECR API (needed for Lambda to pull images) (only when create_connector is true)
-resource "aws_vpc_endpoint" "ecr_api" {
-  count               = var.create_connector ? 1 : 0
-  vpc_id              = var.vpc_id
-  service_name        = "com.amazonaws.${var.aws_region}.ecr.api"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = data.aws_subnets.vpc_subnets.ids
-  security_group_ids  = [aws_security_group.p0_db_endpoint[0].id]
-  private_dns_enabled = true
+# P0 AWS Connector module (only when create_connector is true)
+module "p0_aws_connector" {
+  count  = var.create_connector ? 1 : 0
+  source = "./modules/p0_aws_connector"
 
-  tags = {
-    Name       = "p0_ecr_api_${var.vpc_id}"
-    VpcId      = var.vpc_id
-    ManagedBy  = "Terraform"
-    ManagedFor = "P0"
+  function_name      = "p0-connector-${var.db_architecture}-${var.vpc_id}"
+  vpc_id             = var.vpc_id
+  aws_region         = var.aws_region
+  subnet_ids         = data.aws_subnets.vpc_subnets.ids
+  route_table_ids    = data.aws_route_tables.vpc_route_tables.ids
+  image_uri          = "${local.ecr_repository_url}:latest"
+  security_group_ids = [aws_security_group.db_access[0].id]
+  invoker_role_name  = data.aws_iam_role.p0_rds_connector.name
+
+  environment_variables = {
+    DB_TYPE       = var.db_architecture
+    DB_IDENTIFIER = var.db_identifier
+    DB_PORT       = tostring(local.db_port)
+    VPC_ID        = var.vpc_id
   }
-}
 
-# VPC Endpoint for ECR Docker (needed for Lambda to pull images) (only when create_connector is true)
-resource "aws_vpc_endpoint" "ecr_dkr" {
-  count               = var.create_connector ? 1 : 0
-  vpc_id              = var.vpc_id
-  service_name        = "com.amazonaws.${var.aws_region}.ecr.dkr"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = data.aws_subnets.vpc_subnets.ids
-  security_group_ids  = [aws_security_group.p0_db_endpoint[0].id]
-  private_dns_enabled = true
+  timeout     = 300
+  memory_size = 512
 
-  tags = {
-    Name       = "p0_ecr_dkr_${var.vpc_id}"
-    VpcId      = var.vpc_id
-    ManagedBy  = "Terraform"
-    ManagedFor = "P0"
-  }
-}
-
-# VPC Endpoint for S3 (Gateway endpoint, needed for Lambda to pull layers from ECR) (only when create_connector is true)
-resource "aws_vpc_endpoint" "s3" {
-  count             = var.create_connector ? 1 : 0
-  vpc_id            = var.vpc_id
-  service_name      = "com.amazonaws.${var.aws_region}.s3"
-  vpc_endpoint_type = "Gateway"
-  route_table_ids   = data.aws_route_tables.vpc_route_tables.ids
-
-  tags = {
-    Name       = "p0_s3_${var.vpc_id}"
-    VpcId      = var.vpc_id
-    ManagedBy  = "Terraform"
-    ManagedFor = "P0"
-  }
+  depends_on = [
+    null_resource.push_image
+  ]
 }
 
 # Data source to get route tables for the VPC
@@ -199,43 +158,6 @@ data "aws_iam_role" "lambda_execution" {
   name  = "P0ConnectorLambdaExecution-${var.vpc_id}"
 }
 
-# IAM role for Lambda execution (only when create_connector is true)
-resource "aws_iam_role" "lambda_execution" {
-  count = var.create_connector ? 1 : 0
-  name  = "P0ConnectorLambdaExecution-${var.vpc_id}"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Service = "lambda.amazonaws.com"
-      }
-      Action = "sts:AssumeRole"
-    }]
-  })
-
-  tags = {
-    VpcId      = var.vpc_id
-    ManagedBy  = "Terraform"
-    ManagedFor = "P0"
-  }
-}
-
-# Attach VPC execution policy to Lambda role (only when create_connector is true)
-resource "aws_iam_role_policy_attachment" "lambda_vpc_execution" {
-  count      = var.create_connector ? 1 : 0
-  role       = aws_iam_role.lambda_execution[0].name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
-}
-
-# Attach ECR read policy to Lambda role (only when create_connector is true)
-resource "aws_iam_role_policy_attachment" "lambda_ecr_read" {
-  count      = var.create_connector ? 1 : 0
-  role       = aws_iam_role.lambda_execution[0].name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-}
-
 # IAM policy to allow Lambda to authenticate to RDS using IAM
 resource "aws_iam_policy" "lambda_rds_iam_auth" {
   name        = "P0ConnectorRdsIamAuth-${var.vpc_id}"
@@ -267,75 +189,8 @@ resource "aws_iam_role_policy_attachment" "lambda_rds_iam_auth" {
   policy_arn = aws_iam_policy.lambda_rds_iam_auth.arn
 }
 
-# Lambda function using container image from ECR (only when create_connector is true)
-resource "aws_lambda_function" "p0_connector" {
-  count         = var.create_connector ? 1 : 0
-  function_name = "p0-connector-${var.db_architecture}-${var.vpc_id}"
-  role          = aws_iam_role.lambda_execution[0].arn
-  package_type  = "Image"
-  image_uri     = "${local.ecr_repository_url}:latest"
-  timeout       = 300
-  memory_size   = 512
-
-  vpc_config {
-    subnet_ids         = data.aws_subnets.vpc_subnets.ids
-    security_group_ids = [aws_security_group.p0_db_endpoint[0].id]
-  }
-
-  environment {
-    variables = {
-      DB_TYPE       = var.db_architecture
-      DB_IDENTIFIER = var.db_identifier
-      DB_PORT       = local.db_port
-      VPC_ID        = var.vpc_id
-    }
-  }
-
-  tags = {
-    VpcId      = var.vpc_id
-    ManagedBy  = "Terraform"
-    ManagedFor = "P0"
-  }
-
-  depends_on = [
-    null_resource.push_image,
-    aws_iam_role_policy_attachment.lambda_vpc_execution,
-    aws_iam_role_policy_attachment.lambda_ecr_read
-  ]
-}
 
 # Data source to get the P0 RDS Connector IAM role
 data "aws_iam_role" "p0_rds_connector" {
   name = "P0RdsConnector-${var.vpc_id}"
-}
-
-# IAM policy to allow P0 RDS Connector role to invoke Lambda
-resource "aws_iam_policy" "p0_invoke_lambda" {
-  name        = "P0InvokeLambda-${var.vpc_id}"
-  description = "Policy allowing P0 RDS Connector to invoke the connector Lambda function"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "lambda:InvokeFunction"
-        ]
-        Resource = aws_lambda_function.p0_connector.arn
-      }
-    ]
-  })
-
-  tags = {
-    VpcId      = var.vpc_id
-    ManagedBy  = "Terraform"
-    ManagedFor = "P0"
-  }
-}
-
-# Attach the invoke policy to the P0 RDS Connector role
-resource "aws_iam_role_policy_attachment" "p0_invoke_lambda" {
-  role       = data.aws_iam_role.p0_rds_connector.name
-  policy_arn = aws_iam_policy.p0_invoke_lambda.arn
 }
