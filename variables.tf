@@ -8,9 +8,16 @@ variable "aws_region" {
   type        = string
 }
 
-variable "vpc_id" {
-  description = "The ID of the AWS VPC"
-  type        = string
+variable "create_connector" {
+  description = "Whether to create the full connector infrastructure (true) or only add IAM auth policy to existing role (false)"
+  type        = bool
+  default     = false
+}
+
+variable "create_ecr" {
+  description = "Whether to create a new ECR repository (true) or use an existing one (false)"
+  type        = bool
+  default     = false
 }
 
 variable "db_architecture" {
@@ -37,14 +44,7 @@ variable "db_type" {
   }
 }
 
-variable "create_ecr" {
-  description = "Whether to create a new ECR repository (true) or use an existing one (false)"
-  type        = bool
-  default     = false
-}
-
-variable "create_connector" {
-  description = "Whether to create the full connector infrastructure (true) or only add IAM auth policy to existing role (false)"
-  type        = bool
-  default     = false
+variable "vpc_id" {
+  description = "The ID of the AWS VPC"
+  type        = string
 }

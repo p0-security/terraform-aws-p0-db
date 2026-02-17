@@ -48,43 +48,10 @@ resource "aws_security_group" "db_access" {
   }
 
   tags = {
-    Name       = "p0_db_access_${var.vpc_id}"
     VpcId      = var.vpc_id
     ManagedBy  = "Terraform"
     ManagedFor = "P0"
   }
-}
-
-# Data source to get the P0 RDS Connector IAM role
-data "aws_iam_role" "p0_rds_connector" {
-  name = "P0RdsConnector-${var.vpc_id}"
-}
-
-# P0 AWS Connector module (only when create_connector is true)
-module "p0_aws_connector" {
-  count  = var.create_connector ? 1 : 0
-  source = "./modules/p0_aws_connector"
-
-  function_name      = "p0-connector-${var.db_architecture}-${var.vpc_id}"
-  vpc_id             = var.vpc_id
-  aws_region         = var.aws_region
-  image_uri          = "${local.ecr_repository_url}:latest"
-  security_group_ids = [aws_security_group.db_access[0].id]
-  invoker_role_name  = data.aws_iam_role.p0_rds_connector.name
-  ecr_repository_url = local.ecr_repository_url
-  connector_image    = local.connector_image
-
-  environment_variables = {
-    DB_USER = local.db_role
-  }
-
-  timeout     = 300
-  memory_size = 512
-
-  depends_on = [
-    module.ecr,
-    data.aws_ecr_repository.p0_connector_images
-  ]
 }
 
 # Data source to read existing ECR repository (when create_ecr is false)
@@ -106,6 +73,33 @@ module "ecr" {
 data "aws_iam_role" "lambda_execution" {
   count = var.create_connector ? 0 : 1
   name  = "P0ConnectorLambdaExecution-${var.vpc_id}"
+}
+
+# P0 AWS Connector module (only when create_connector is true)
+module "p0_aws_connector" {
+  count  = var.create_connector ? 1 : 0
+  source = "./modules/p0_aws_connector"
+
+  aws_region         = var.aws_region
+  connector_image    = local.connector_image
+  ecr_repository_url = local.ecr_repository_url
+  function_name      = "p0-connector-${var.db_architecture}-${var.vpc_id}"
+  image_uri          = "${local.ecr_repository_url}:latest"
+  invoker_role_name  = "P0RdsConnector-${var.vpc_id}"
+  security_group_ids = [aws_security_group.db_access[0].id]
+  vpc_id             = var.vpc_id
+
+  environment_variables = {
+    DB_USER = local.db_role
+  }
+
+  timeout     = 300
+  memory_size = 512
+
+  depends_on = [
+    module.ecr,
+    data.aws_ecr_repository.p0_connector_images
+  ]
 }
 
 # IAM policy to allow Lambda to authenticate to RDS using IAM
