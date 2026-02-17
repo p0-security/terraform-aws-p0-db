@@ -4,7 +4,19 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.0"
+    }
   }
+}
+
+# Data source to get ECR authorization token
+data "aws_ecr_authorization_token" "token" {}
+
+# Data source to get route tables for the VPC
+data "aws_route_tables" "vpc_route_tables" {
+  vpc_id = var.vpc_id
 }
 
 # Security group for VPC endpoints
@@ -75,12 +87,36 @@ resource "aws_vpc_endpoint" "s3" {
   vpc_id            = var.vpc_id
   service_name      = "com.amazonaws.${var.aws_region}.s3"
   vpc_endpoint_type = "Gateway"
-  route_table_ids   = var.route_table_ids
+  route_table_ids   = data.aws_route_tables.vpc_route_tables.ids
 
   tags = {
     Name       = "${var.function_name}-s3"
     ManagedBy  = "Terraform"
     ManagedFor = "P0"
+  }
+}
+
+# Null resource to pull, tag, and push Docker image to ECR
+resource "null_resource" "push_image" {
+  triggers = {
+    ecr_repository_url = var.ecr_repository_url
+    image_name         = var.connector_image
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      # Pull the source image for linux/amd64 platform
+      docker pull --platform linux/amd64 ${var.connector_image}
+
+      # Tag for ECR
+      docker tag ${var.connector_image} ${var.ecr_repository_url}:latest
+
+      # Login to ECR
+      aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${var.ecr_repository_url}
+
+      # Push to ECR
+      docker push ${var.ecr_repository_url}:latest
+    EOT
   }
 }
 
@@ -142,7 +178,8 @@ resource "aws_lambda_function" "connector" {
 
   depends_on = [
     aws_iam_role_policy_attachment.lambda_vpc_execution,
-    aws_iam_role_policy_attachment.lambda_ecr_read
+    aws_iam_role_policy_attachment.lambda_ecr_read,
+    null_resource.push_image
   ]
 }
 

@@ -34,12 +34,13 @@ data "aws_subnets" "vpc_subnets" {
 
 # Local values for computed attributes
 locals {
-  db_subnet_group = var.db_type == "instance" ? data.aws_db_instance.target[0].db_subnet_group : data.aws_rds_cluster.target[0].db_subnet_group_name
-  db_resource_id  = var.db_type == "instance" ? data.aws_db_instance.target[0].resource_id : data.aws_rds_cluster.target[0].cluster_resource_id
-  db_security_groups = var.db_type == "instance" ? data.aws_db_instance.target[0].vpc_security_groups : data.aws_rds_cluster.target[0].vpc_security_group_ids
-  db_port = var.db_type == "instance" ? data.aws_db_instance.target[0].port : data.aws_rds_cluster.target[0].port
-  connector_image = "p0security/p0-connector-${var.db_architecture}:latest"
-  ecr_repository_url = var.create_ecr ? module.ecr[0].repository_url : data.aws_ecr_repository.p0_connector_images[0].repository_url
+  db_subnet_group       = var.db_type == "instance" ? data.aws_db_instance.target[0].db_subnet_group : data.aws_rds_cluster.target[0].db_subnet_group_name
+  db_resource_id        = var.db_type == "instance" ? data.aws_db_instance.target[0].resource_id : data.aws_rds_cluster.target[0].cluster_resource_id
+  db_security_groups    = var.db_type == "instance" ? data.aws_db_instance.target[0].vpc_security_groups : data.aws_rds_cluster.target[0].vpc_security_group_ids
+  db_port               = var.db_type == "instance" ? data.aws_db_instance.target[0].port : data.aws_rds_cluster.target[0].port
+  db_role               = "p0_iam_manager"
+  connector_image       = "p0security/p0-connector-${var.db_architecture}:latest"
+  ecr_repository_url    = var.create_ecr ? module.ecr[0].repository_url : data.aws_ecr_repository.p0_connector_images[0].repository_url
   lambda_execution_role = var.create_connector ? module.p0_aws_connector[0].lambda_execution_role : data.aws_iam_role.lambda_execution[0]
 }
 
@@ -67,6 +68,11 @@ resource "aws_security_group" "db_access" {
   }
 }
 
+# Data source to get the P0 RDS Connector IAM role
+data "aws_iam_role" "p0_rds_connector" {
+  name = "P0RdsConnector-${var.vpc_id}"
+}
+
 # P0 AWS Connector module (only when create_connector is true)
 module "p0_aws_connector" {
   count  = var.create_connector ? 1 : 0
@@ -76,29 +82,23 @@ module "p0_aws_connector" {
   vpc_id             = var.vpc_id
   aws_region         = var.aws_region
   subnet_ids         = data.aws_subnets.vpc_subnets.ids
-  route_table_ids    = data.aws_route_tables.vpc_route_tables.ids
   image_uri          = "${local.ecr_repository_url}:latest"
   security_group_ids = [aws_security_group.db_access[0].id]
   invoker_role_name  = data.aws_iam_role.p0_rds_connector.name
+  ecr_repository_url = local.ecr_repository_url
+  connector_image    = local.connector_image
 
   environment_variables = {
-    DB_TYPE       = var.db_architecture
-    DB_IDENTIFIER = var.db_identifier
-    DB_PORT       = tostring(local.db_port)
-    VPC_ID        = var.vpc_id
+    DB_USER = local.db_role
   }
 
   timeout     = 300
   memory_size = 512
 
   depends_on = [
-    null_resource.push_image
+    module.ecr,
+    data.aws_ecr_repository.p0_connector_images
   ]
-}
-
-# Data source to get route tables for the VPC
-data "aws_route_tables" "vpc_route_tables" {
-  vpc_id = var.vpc_id
 }
 
 # Data source to read existing ECR repository (when create_ecr is false)
@@ -114,42 +114,6 @@ module "ecr" {
 
   repository_name = "p0_connector_images"
   image_limit     = 10
-}
-
-# Data source to get ECR authorization token
-data "aws_ecr_authorization_token" "token" {
-  count = var.create_connector ? 1 : 0
-}
-
-# Null resource to pull, tag, and push Docker image to ECR (only when create_connector is true)
-resource "null_resource" "push_image" {
-  count = var.create_connector ? 1 : 0
-
-  triggers = {
-    ecr_repository_url = local.ecr_repository_url
-    image_name         = local.connector_image
-  }
-
-  provisioner "local-exec" {
-    command = <<-EOT
-      # Pull the source image for linux/amd64 platform
-      docker pull --platform linux/amd64 ${local.connector_image}
-
-      # Tag for ECR
-      docker tag ${local.connector_image} ${local.ecr_repository_url}:latest
-
-      # Login to ECR
-      aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${local.ecr_repository_url}
-
-      # Push to ECR
-      docker push ${local.ecr_repository_url}:latest
-    EOT
-  }
-
-  depends_on = [
-    module.ecr,
-    data.aws_ecr_repository.p0_connector_images
-  ]
 }
 
 # Data source to read existing Lambda execution role (when create_connector is false)
@@ -187,10 +151,4 @@ resource "aws_iam_policy" "lambda_rds_iam_auth" {
 resource "aws_iam_role_policy_attachment" "lambda_rds_iam_auth" {
   role       = local.lambda_execution_role.name
   policy_arn = aws_iam_policy.lambda_rds_iam_auth.arn
-}
-
-
-# Data source to get the P0 RDS Connector IAM role
-data "aws_iam_role" "p0_rds_connector" {
-  name = "P0RdsConnector-${var.vpc_id}"
 }

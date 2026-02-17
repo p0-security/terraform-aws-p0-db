@@ -18,11 +18,6 @@ variable "subnet_ids" {
   type        = list(string)
 }
 
-variable "route_table_ids" {
-  description = "List of route table IDs for S3 gateway endpoint"
-  type        = list(string)
-}
-
 variable "image_uri" {
   description = "Docker image URI for the Lambda function"
   type        = string
@@ -53,5 +48,15 @@ variable "memory_size" {
 
 variable "invoker_role_name" {
   description = "Name of the IAM role that should be allowed to invoke the Lambda function"
+  type        = string
+}
+
+variable "ecr_repository_url" {
+  description = "ECR repository URL for pushing Docker images"
+  type        = string
+}
+
+variable "connector_image" {
+  description = "Docker image name to pull and push to ECR"
   type        = string
 }
