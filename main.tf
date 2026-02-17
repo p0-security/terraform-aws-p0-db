@@ -39,7 +39,7 @@ locals {
   db_security_groups = var.db_type == "instance" ? data.aws_db_instance.target[0].vpc_security_groups : data.aws_rds_cluster.target[0].vpc_security_group_ids
   db_port = var.db_type == "instance" ? data.aws_db_instance.target[0].port : data.aws_rds_cluster.target[0].port
   connector_image = "p0security/p0-connector-${var.db_architecture}:latest"
-  ecr_repository_url = var.create_ecr ? aws_ecr_repository.p0_connector_images[0].repository_url : data.aws_ecr_repository.p0_connector_images[0].repository_url
+  ecr_repository_url = var.create_ecr ? module.ecr[0].repository_url : data.aws_ecr_repository.p0_connector_images[0].repository_url
   lambda_execution_role = var.create_connector ? aws_iam_role.lambda_execution[0] : data.aws_iam_role.lambda_execution[0]
 }
 
@@ -148,41 +148,13 @@ data "aws_ecr_repository" "p0_connector_images" {
   name  = "p0_connector_images"
 }
 
-# ECR Repository for P0 connector images (when create_ecr is true)
-resource "aws_ecr_repository" "p0_connector_images" {
-  count                = var.create_ecr ? 1 : 0
-  name                 = "p0_connector_images"
-  image_tag_mutability = "MUTABLE"
+# ECR module for creating repository (when create_ecr is true)
+module "ecr" {
+  count  = var.create_ecr ? 1 : 0
+  source = "./modules/ecr"
 
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = {
-    ManagedBy  = "Terraform"
-    ManagedFor = "P0"
-  }
-}
-
-# ECR Lifecycle Policy to keep only recent images (when create_ecr is true)
-resource "aws_ecr_lifecycle_policy" "p0_connector_images" {
-  count      = var.create_ecr ? 1 : 0
-  repository = aws_ecr_repository.p0_connector_images[0].name
-
-  policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Keep last 10 images"
-      selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 10
-      }
-      action = {
-        type = "expire"
-      }
-    }]
-  })
+  repository_name = "p0_connector_images"
+  image_limit     = 10
 }
 
 # Data source to get ECR authorization token
@@ -216,7 +188,7 @@ resource "null_resource" "push_image" {
   }
 
   depends_on = [
-    aws_ecr_repository.p0_connector_images,
+    module.ecr,
     data.aws_ecr_repository.p0_connector_images
   ]
 }
