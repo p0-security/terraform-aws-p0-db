@@ -19,19 +19,6 @@ data "aws_rds_cluster" "target" {
   cluster_identifier = var.db_identifier
 }
 
-# Data source to get VPC details
-data "aws_vpc" "target" {
-  id = var.vpc_id
-}
-
-# Data source to get subnets in the VPC
-data "aws_subnets" "vpc_subnets" {
-  filter {
-    name   = "vpc-id"
-    values = [var.vpc_id]
-  }
-}
-
 # Local values for computed attributes
 locals {
   db_subnet_group       = var.db_type == "instance" ? data.aws_db_instance.target[0].db_subnet_group : data.aws_rds_cluster.target[0].db_subnet_group_name
@@ -81,7 +68,6 @@ module "p0_aws_connector" {
   function_name      = "p0-connector-${var.db_architecture}-${var.vpc_id}"
   vpc_id             = var.vpc_id
   aws_region         = var.aws_region
-  subnet_ids         = data.aws_subnets.vpc_subnets.ids
   image_uri          = "${local.ecr_repository_url}:latest"
   security_group_ids = [aws_security_group.db_access[0].id]
   invoker_role_name  = data.aws_iam_role.p0_rds_connector.name

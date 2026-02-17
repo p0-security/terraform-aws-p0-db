@@ -13,11 +13,6 @@ variable "aws_region" {
   type        = string
 }
 
-variable "subnet_ids" {
-  description = "List of subnet IDs for Lambda and VPC endpoints"
-  type        = list(string)
-}
-
 variable "image_uri" {
   description = "Docker image URI for the Lambda function"
   type        = string

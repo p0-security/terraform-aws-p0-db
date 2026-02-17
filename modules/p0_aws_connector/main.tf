@@ -14,6 +14,14 @@ terraform {
 # Data source to get ECR authorization token
 data "aws_ecr_authorization_token" "token" {}
 
+# Data source to get subnets in the VPC
+data "aws_subnets" "vpc_subnets" {
+  filter {
+    name   = "vpc-id"
+    values = [var.vpc_id]
+  }
+}
+
 # Data source to get route tables for the VPC
 data "aws_route_tables" "vpc_route_tables" {
   vpc_id = var.vpc_id
@@ -55,7 +63,7 @@ resource "aws_vpc_endpoint" "ecr_api" {
   vpc_id              = var.vpc_id
   service_name        = "com.amazonaws.${var.aws_region}.ecr.api"
   vpc_endpoint_type   = "Interface"
-  subnet_ids          = var.subnet_ids
+  subnet_ids          = data.aws_subnets.vpc_subnets.ids
   security_group_ids  = [aws_security_group.vpc_endpoints.id]
   private_dns_enabled = true
 
@@ -71,7 +79,7 @@ resource "aws_vpc_endpoint" "ecr_dkr" {
   vpc_id              = var.vpc_id
   service_name        = "com.amazonaws.${var.aws_region}.ecr.dkr"
   vpc_endpoint_type   = "Interface"
-  subnet_ids          = var.subnet_ids
+  subnet_ids          = data.aws_subnets.vpc_subnets.ids
   security_group_ids  = [aws_security_group.vpc_endpoints.id]
   private_dns_enabled = true
 
@@ -163,7 +171,7 @@ resource "aws_lambda_function" "connector" {
   memory_size   = var.memory_size
 
   vpc_config {
-    subnet_ids         = var.subnet_ids
+    subnet_ids         = data.aws_subnets.vpc_subnets.ids
     security_group_ids = var.security_group_ids
   }
 
