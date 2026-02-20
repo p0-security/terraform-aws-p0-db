@@ -2,7 +2,7 @@ variable "arch" {
   description = "Database architecture"
   type        = string
   validation {
-    condition     = contains(["msyql", "pg"], var.arch)
+    condition     = contains(["mysql", "pg"], var.arch)
     error_message = "'arch' must be one of 'mysql' or 'pg'"
   }
 }
