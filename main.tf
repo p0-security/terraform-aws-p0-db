@@ -26,12 +26,7 @@ data "aws_db_instance" "database" {
   db_instance_identifier = reverse(split(":", var.rds_arn))[0]
 }
 
-data "aws_lambda_function" "connector" {
-  function_name = var.connector_lambda_name
-}
-
 locals {
-  connector_security_group_id = tolist(data.aws_lambda_function.connector.vpc_config[0].security_group_ids)[0]
   database_security_group_id  = local.is_cluster ? tolist(data.aws_rds_cluster.database[0].vpc_security_group_ids)[0] : tolist(data.aws_db_instance.database[0].vpc_security_groups)[0].id
   port                        = local.is_cluster ? data.aws_rds_cluster.database[0].port : data.aws_db_instance.database[0].port
   resource_id                 = local.is_cluster ? data.aws_rds_cluster.database[0].cluster_resource_id : data.aws_db_instance.database[0].resource_id
@@ -44,7 +39,7 @@ resource "aws_security_group_rule" "connector_to_database" {
   from_port                = local.port
   to_port                  = local.port
   protocol                 = "tcp"
-  security_group_id        = local.connector_security_group_id
+  security_group_id        = var.connector_security_group_id
   source_security_group_id = local.database_security_group_id
 }
 
@@ -55,13 +50,13 @@ resource "aws_security_group_rule" "database_from_connector" {
   to_port                  = local.port
   protocol                 = "tcp"
   security_group_id        = local.database_security_group_id
-  source_security_group_id = local.connector_security_group_id
+  source_security_group_id = var.connector_security_group_id
 }
 
 # RDS describe and connect policy for Lambda
 resource "aws_iam_role_policy" "lambda_rds_describe" {
   name = "P0RdsSecurityPerimeterDescribePolicy"
-  role = reverse(split(":", data.aws_lambda_function.connector.role))[0]
+  role = var.lambda_execution_role_name
 
   policy = jsonencode({
     Version = "2012-10-17"
