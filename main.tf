@@ -11,9 +11,38 @@ data "aws_caller_identity" "current" {}
 
 data "aws_region" "current" {}
 
+data "aws_rds_cluster" "database" {
+  cluster_identifier = reverse(split(":", var.rds_arn))[0]
+}
+
+data "aws_security_group" "database" {
+  id = tolist(data.aws_rds_cluster.database.vpc_security_group_ids)[0]
+}
+
 locals {
   aws_account_id = coalesce(var.aws_account_id, data.aws_caller_identity.current.account_id)
   aws_region     = coalesce(var.aws_region, data.aws_region.current.id)
+}
+
+# Security group rules allowing connector to access database
+resource "aws_security_group_rule" "connector_to_database" {
+  type                     = "egress"
+  description              = "Outbound to database"
+  from_port                = data.aws_rds_cluster.database.port
+  to_port                  = data.aws_rds_cluster.database.port
+  protocol                 = "tcp"
+  security_group_id        = var.connector_security_group_id
+  source_security_group_id = data.aws_security_group.database.id
+}
+
+resource "aws_security_group_rule" "database_from_connector" {
+  type                     = "ingress"
+  description              = "Database traffic from P0 connector Lambda"
+  from_port                = data.aws_rds_cluster.database.port
+  to_port                  = data.aws_rds_cluster.database.port
+  protocol                 = "tcp"
+  security_group_id        = data.aws_security_group.database.id
+  source_security_group_id = var.connector_security_group_id
 }
 
 # RDS describe and connect policy for Lambda
