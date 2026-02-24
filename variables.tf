@@ -9,6 +9,6 @@ variable "rds_arn" {
 }
 
 variable "connector_security_group_id" {
-  description = "ID of the security group that must be able to ingress to the database, used to allow the connector to access the database. This security group must exist and be attached to the database before applying this module."
+  description = "ID of the P0 connector Lambda's security group."
   type        = string
 }
