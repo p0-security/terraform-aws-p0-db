@@ -2,7 +2,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 6.0"
+      version = "~> 5.0"
     }
   }
 }
@@ -15,21 +15,19 @@ locals {
 }
 
 data "aws_rds_cluster" "database" {
-  region             = local.aws_region
   count              = local.is_cluster ? 1 : 0
   cluster_identifier = reverse(split(":", var.rds_arn))[0]
 }
 
 data "aws_db_instance" "database" {
-  region                 = local.aws_region
   count                  = local.is_cluster ? 0 : 1
   db_instance_identifier = reverse(split(":", var.rds_arn))[0]
 }
 
 locals {
-  database_security_group_id  = local.is_cluster ? tolist(data.aws_rds_cluster.database[0].vpc_security_group_ids)[0] : tolist(data.aws_db_instance.database[0].vpc_security_groups)[0].id
-  port                        = local.is_cluster ? data.aws_rds_cluster.database[0].port : data.aws_db_instance.database[0].port
-  resource_id                 = local.is_cluster ? data.aws_rds_cluster.database[0].cluster_resource_id : data.aws_db_instance.database[0].resource_id
+  database_security_group_id = local.is_cluster ? tolist(data.aws_rds_cluster.database[0].vpc_security_group_ids)[0] : tolist(data.aws_db_instance.database[0].vpc_security_groups)[0].id
+  port                       = local.is_cluster ? data.aws_rds_cluster.database[0].port : data.aws_db_instance.database[0].port
+  resource_id                = local.is_cluster ? data.aws_rds_cluster.database[0].cluster_resource_id : data.aws_db_instance.database[0].resource_id
 }
 
 # Security group rules allowing connector to access database
