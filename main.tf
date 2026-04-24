@@ -25,7 +25,7 @@ data "aws_db_instance" "database" {
 }
 
 locals {
-  database_security_group_id = local.is_cluster ? tolist(data.aws_rds_cluster.database[0].vpc_security_group_ids)[0] : tolist(data.aws_db_instance.database[0].vpc_security_groups)[0].id
+  database_security_group_id = local.is_cluster ? tolist(data.aws_rds_cluster.database[0].vpc_security_group_ids)[0] : tolist(data.aws_db_instance.database[0].vpc_security_groups)[0]
   port                       = local.is_cluster ? data.aws_rds_cluster.database[0].port : data.aws_db_instance.database[0].port
   resource_id                = local.is_cluster ? data.aws_rds_cluster.database[0].cluster_resource_id : data.aws_db_instance.database[0].resource_id
 }
