@@ -51,9 +51,8 @@ resource "aws_security_group_rule" "database_from_connector" {
   source_security_group_id = var.connector_security_group_id
 }
 
-# RDS describe and connect policy for Lambda
-resource "aws_iam_role_policy" "lambda_rds_describe" {
-  name = "P0RdsSecurityPerimeterDescribePolicy"
+resource "aws_iam_role_policy" "lambda_rds_connect" {
+  name = "P0RdsSecurityPerimeterConnectPolicy-${local.resource_id}"
   role = var.lambda_execution_role_name
 
   policy = jsonencode({
