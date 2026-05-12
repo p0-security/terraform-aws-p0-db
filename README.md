@@ -27,6 +27,5 @@ Configure P0's access in a AWS RDS Postgres database by running:
 ```
 CREATE USER p0_iam_manager;
 GRANT rds_iam TO p0_iam_manager;
-ALTER USER p0_iam_manager WITH CREATEROLE;
-GRANT ALL PRIVILEGES ON *.* TO p0_iam_manager WITH GRANT OPTION;
+GRANT rds_superuser TO p0_iam_manager WITH ADMIN OPTION;
 ```
