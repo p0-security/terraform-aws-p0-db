@@ -2,7 +2,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 6.0"
     }
   }
 }
@@ -17,11 +17,15 @@ locals {
 data "aws_rds_cluster" "database" {
   count              = local.is_cluster ? 1 : 0
   cluster_identifier = reverse(split(":", var.rds_arn))[0]
+
+  region = var.aws_region
 }
 
 data "aws_db_instance" "database" {
   count                  = local.is_cluster ? 0 : 1
   db_instance_identifier = reverse(split(":", var.rds_arn))[0]
+
+  region = var.aws_region
 }
 
 locals {
@@ -39,6 +43,8 @@ resource "aws_security_group_rule" "connector_to_database" {
   protocol                 = "tcp"
   security_group_id        = var.connector_security_group_id
   source_security_group_id = local.database_security_group_id
+
+  region = var.aws_region
 }
 
 resource "aws_security_group_rule" "database_from_connector" {
@@ -49,6 +55,8 @@ resource "aws_security_group_rule" "database_from_connector" {
   protocol                 = "tcp"
   security_group_id        = local.database_security_group_id
   source_security_group_id = var.connector_security_group_id
+
+  region = var.aws_region
 }
 
 resource "aws_iam_role_policy" "lambda_rds_connect" {
