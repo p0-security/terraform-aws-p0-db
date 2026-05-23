@@ -24,10 +24,3 @@ variable "connector_security_group_id" {
   description = "ID of the P0 connector Lambda's security group."
   type        = string
 }
-
-variable "aws_region" {
-  description = "The AWS region"
-  nullable    = true
-  default     = null
-  type        = string
-}
