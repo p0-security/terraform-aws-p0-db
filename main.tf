@@ -3,7 +3,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 6.0"
     }
   }
 }
@@ -11,24 +11,34 @@ terraform {
 locals {
   is_cluster = var.rds_cluster_arn != null
   rds_arn    = local.is_cluster ? var.rds_cluster_arn : var.rds_instance_arn
-  identifier = reverse(split(":", local.rds_arn))[0]
+}
+
+data "aws_arn" "rds" {
+  arn = local.rds_arn
+}
+
+locals {
+  identifier     = reverse(split(":", data.aws_arn.rds.resource))[0]
+  aws_account_id = data.aws_arn.rds.account
+  aws_region     = data.aws_arn.rds.region
+  aws_partition  = data.aws_arn.rds.partition
 }
 
 data "aws_rds_cluster" "database" {
   count              = local.is_cluster ? 1 : 0
   cluster_identifier = local.identifier
+
+  region = local.aws_region
 }
 
 data "aws_db_instance" "database" {
   count                  = local.is_cluster ? 0 : 1
   db_instance_identifier = local.identifier
+
+  region = local.aws_region
 }
 
 locals {
-  aws_account_id = split(":", local.rds_arn)[4]
-  aws_region     = split(":", local.rds_arn)[3]
-  aws_partition  = split(":", local.rds_arn)[1]
-
   database_security_group_id = local.is_cluster ? tolist(data.aws_rds_cluster.database[0].vpc_security_group_ids)[0] : tolist(data.aws_db_instance.database[0].vpc_security_groups)[0]
   port                       = local.is_cluster ? data.aws_rds_cluster.database[0].port : data.aws_db_instance.database[0].port
   resource_id                = local.is_cluster ? data.aws_rds_cluster.database[0].cluster_resource_id : data.aws_db_instance.database[0].resource_id
@@ -43,6 +53,8 @@ resource "aws_security_group_rule" "connector_to_database" {
   protocol                 = "tcp"
   security_group_id        = var.connector_security_group_id
   source_security_group_id = local.database_security_group_id
+
+  region = local.aws_region
 }
 
 resource "aws_security_group_rule" "database_from_connector" {
@@ -53,6 +65,8 @@ resource "aws_security_group_rule" "database_from_connector" {
   protocol                 = "tcp"
   security_group_id        = local.database_security_group_id
   source_security_group_id = var.connector_security_group_id
+
+  region = local.aws_region
 }
 
 resource "aws_iam_role_policy" "lambda_rds_connect" {
