@@ -1,4 +1,5 @@
 terraform {
+  required_version = ">= 1.9.0"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -8,27 +9,30 @@ terraform {
 }
 
 locals {
-  is_cluster     = split(":", var.rds_arn)[5] == "cluster"
-  aws_account_id = split(":", var.rds_arn)[4]
-  aws_region     = split(":", var.rds_arn)[3]
-  aws_partition  = split(":", var.rds_arn)[1]
+  is_cluster = var.rds_cluster_arn != null
+  rds_arn    = local.is_cluster ? var.rds_cluster_arn : var.rds_instance_arn
+  identifier = reverse(split(":", local.rds_arn))[0]
 }
 
 data "aws_rds_cluster" "database" {
   count              = local.is_cluster ? 1 : 0
-  cluster_identifier = reverse(split(":", var.rds_arn))[0]
+  cluster_identifier = local.identifier
 
   region = var.aws_region
 }
 
 data "aws_db_instance" "database" {
   count                  = local.is_cluster ? 0 : 1
-  db_instance_identifier = reverse(split(":", var.rds_arn))[0]
+  db_instance_identifier = local.identifier
 
   region = var.aws_region
 }
 
 locals {
+  aws_account_id = split(":", local.rds_arn)[4]
+  aws_region     = split(":", local.rds_arn)[3]
+  aws_partition  = split(":", local.rds_arn)[1]
+
   database_security_group_id = local.is_cluster ? tolist(data.aws_rds_cluster.database[0].vpc_security_group_ids)[0] : tolist(data.aws_db_instance.database[0].vpc_security_groups)[0]
   port                       = local.is_cluster ? data.aws_rds_cluster.database[0].port : data.aws_db_instance.database[0].port
   resource_id                = local.is_cluster ? data.aws_rds_cluster.database[0].cluster_resource_id : data.aws_db_instance.database[0].resource_id
